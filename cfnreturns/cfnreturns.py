@@ -1,6 +1,7 @@
 import string
 import random
 import uuid
+import hashlib
 
 def gen_alnumchars(num_chars, upper = False):
     ret = ''.join(random.choice(string.ascii_uppercase + string.digits) for _ in range(num_chars))
@@ -23,6 +24,8 @@ def get_ref(res, res_name='myresource', stack_name='mystack', region='us-east-1'
     return get_returns(res, res_name, stack_name, region)['Ref']
 
 def get_returns(res, res_name='myresource', stack_name='mystack', region='us-east-1', accountid='123456789012'):
+    random.seed(int(hashlib.md5(res_name + stack_name + region + accountid).hexdigest(), 16))
+    
     res_type = res['Type']
 
     if res_type == 'AWS::ApiGateway::Account':
@@ -301,18 +304,21 @@ def get_returns(res, res_name='myresource', stack_name='mystack', region='us-eas
         raise NotImplementedError
     elif res_type == 'AWS::ElasticLoadBalancing::LoadBalancer':
         ref = '%s-%s-%s' % (stack_name[:9], res_name[:8], gen_alnumchars(12, True))
-        rnddnsext = str(randint(100000000, 999999999))
+        rnddnsext = str(random.randint(100000000, 999999999))
         internalprefix = ''
-        if res['Properties']['Scheme'] == 'internal':
+        dnsname = '%s%s-%s.%s.elb.amazonaws.com' % (internalprefix, ref, rnddnsext, region)
+        zonename = dnsname
+        sg_groupname = "%s-InstanceSecurityGroup-%s" % (stack_name, gen_alnumchars(13, True)) # Will stack_name be truncated?
+        if 'Properties' in res and 'Scheme' in res['Properties'] and res['Properties']['Scheme'] == 'internal':
             internalprefix = 'internal-'
         return {
-            'Ref': ref
+            'Ref': ref,
             'Fn::GetAtt': {
-                'CanonicalHostedZoneName': None, #TODO Finish this off
-                'CanonicalHostedZoneNameID': None, #TODO Finish this off
-                'DNSName': '%s%s-%s.%s.elb.amazonaws.com' % (internalprefix, ref, rnddnsext, region),
-                'SourceSecurityGroup.GroupName': None, #TODO Finish this off
-                'SourceSecurityGroup.OwnerAlias': None #TODO Finish this off
+                'CanonicalHostedZoneName': zonename, #TODO For internal, might look like: int-ElasticLoadBal-1PNEJ1505X77D
+                'CanonicalHostedZoneNameID': "Z%s" % (gen_alnumchars(13, True)),
+                'DNSName': dnsname,
+                'SourceSecurityGroup.GroupName': sg_groupname, #TODO Finish this off  NO SG / Subs set: default_elb_ff5c503c-0ae1-36c9-abc7-005bf976ac13   maybe different for internal
+                'SourceSecurityGroup.OwnerAlias': accountid
             }
         }
     elif res_type == 'AWS::ElasticLoadBalancingV2::Listener':
